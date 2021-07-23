@@ -11,7 +11,7 @@ function FLIP() {
   const [imgs, updateImgs] = useState<string[]>([]);
 
   const imgRefs = useRef();
-  const prevSrcRectMap = useRef();
+  const prevSrcRectMap = useRef(); // 记录旧图片节点位置
 
   function handleReset() {
     const getSister = getSisterGenerator()
