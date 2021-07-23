@@ -77,7 +77,7 @@ function FLIP() {
   const createSrcRectMap = (locImgs: string []) => {
     return locImgs.reduce((prev, img) => {
       const imgElement = img.childNodes[0]
-      const rect = imgElement.getBoundingClientRect()
+      const rect = imgElement.getBoundingClientRect() // 返回元素的大小及其相对于视口的位置。
       const {left, top} = rect
       prev[imgElement.src] = {left, top, imgElement}
       return prev
