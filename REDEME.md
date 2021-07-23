@@ -59,153 +59,29 @@ DOM 元素属性的改变（比如 `left`、`right`、 `transform` 等等），�
 
 首先图片渲染很简单，就让图片通过简单的排成 4 列即可：
 
-```xml
-.wrap {
-  display: flex;
-  flex-wrap: wrap;
-}
-
-.img {
-  width: 25%;
-}
-
-<div v-else class="wrap">
-  <div class="img-wrap" v-for="src in imgs" :key="src">
-    <img ref="imgs" class="img" :src="src" />
-  </div>
-</div>
-```
-
 那么关键点就在于怎么往这个 `imgs` 数组里追加元素后，做一个流畅的路径动画。
 
 我们来实现追加图片的方法 `add`：
-
-```js
-async add() {
-  const newData = this.getSister()
-  await preload(newData)
-}
-```
 
 首先随机的取出几张图片作为待放入数组的元素，利用 `new Image` 预加载这些图片，防止渲染一堆空白图片到屏幕上。
 
 然后定义一个计算一组 DOM 元素位置的函数 `getRects`，利用 `getBoundingClientRect` 可以获得最新的位置信息，这个方法在接下来获取图片元素旧位置和新位置时都要使用。
 
-```js
-function getRects(doms) {
-  return doms.map((dom) => {
-    const rect = dom.getBoundingClientRect()
-    const { left, top } = rect
-    return { left, top }
-  })
-}
-
-// 当前已有的图片
-const prevImgs = this.$refs.imgs.slice()
-const prevPositions = getRects(prevImgs)
-```
 
 记录完图片的旧位置后，就可以向数组里追加新的图片了：
 
-```js
-this.imgs = newData.concat(this.imgs)
-```
+随后就是比较关键的点了，异步渲染，也就是改变了这个 `imgs` 数组后不会立刻发生 DOM 的变动，此时我们要用到 `nextTick` 这个 API，这个 API 把你传入的回调函数放进了 `microTask` 队列，正如上文提到的事件循环的文章里所说，`microTask`队列的执行一定发生在浏览器重新渲染前。
 
-随后就是比较关键的点了，我们知道 Vue 是异步渲染的，也就是改变了这个 `imgs` 数组后不会立刻发生 DOM 的变动，此时我们要用到 `nextTick` 这个 API，这个 API 把你传入的回调函数放进了 `microTask` 队列，正如上文提到的事件循环的文章里所说，`microTask`队列的执行一定发生在浏览器重新渲染前。
+由于先调用了 `this.imgs = newData.concat(this.imgs)` 这段代码，触发了 react 的响应式依赖更新，更新的渲染函数先放到 `microTask`队列中，此时的队列是`[changeDOM]`。
 
-由于先调用了 `this.imgs = newData.concat(this.imgs)` 这段代码，触发了 Vue 的响应式依赖更新，此时 Vue 内部会把本次 DOM 更新的渲染函数先放到 `microTask`队列中，此时的队列是`[changeDOM]`。
+调用了 `useLayoutEffect` 后，这个`callback`函数也会被追加到队列中，此时的队列是 `[changeDOM, callback]`。
 
-调用了 `nextTick(callback)` 后，这个`callback`函数也会被追加到队列中，此时的队列是 `[changeDOM, callback]`。
 
-这下聪明的你肯定就明白了，为什么 `nextTick`的回调函数里一定能获取到最新的 DOM 状态。
+由于我们之前保存了图片元素节点的数组 `prevImgs`，所以在 `useLayoutEffect` 里调用同样的 `getRect` 方法获取到的就是旧图片的最新位置了。
 
-由于我们之前保存了图片元素节点的数组 `prevImgs`，所以在 `nextTick` 里调用同样的 `getRect` 方法获取到的就是旧图片的最新位置了。
-
-```js
-async add() {
-  // 最新 DOM 状态
-  this.$nextTick(() => {
-    // 再调用同样的方法获取最新的元素位置
-    const currentPositions = getRects(prevImgs)
-  })
-},
-```
 
 此时我们已经拥有了 `Invert` 步骤的关键信息，新位置和旧位置，那么接下来就很简单了，把图片数组循环做一个倒置后 `Play`的动画即可。
 
-```js
-prevImgs.forEach((imgRef, imgIndex) => {
-  const currentPosition = currentPositions[imgIndex]
-  const prevPosition = prevPositions[imgIndex]
-
-  // 倒置后的位置，虽然图片移动到最新位置了，但你先给我回去，等着我来让你做动画。
-  const invert = {
-    left: prevPosition.left - currentPosition.left,
-    top: prevPosition.top - currentPosition.top,
-  }
-
-  const keyframes = [
-    // 初始位置是倒置后的位置
-    {
-      transform: `translate(${invert.left}px, ${invert.top}px)`,
-    },
-    // 图片更新后本来应该在的位置
-    { transform: "translate(0)" },
-  ]
-
-  const options = {
-    duration: 300,
-    easing: "cubic-bezier(0,0,0.32,1)",
-  }
-
-  // 开始运动！
-  const animation = imgRef.animate(keyframes, options)
-})
-```
-
-此时一个非常流畅的路径动画效果就完成了。
-
-完整实现如下：
-
-```js
-async add() {
-  const newData = this.getSister()
-  await preload(newData)
-
-  const prevImgs = this.$refs.imgs.slice()
-  const prevPositions = getRects(prevImgs)
-
-  this.imgs = newData.concat(this.imgs)
-
-  this.$nextTick(() => {
-    const currentPositions = getRects(prevImgs)
-
-    prevImgs.forEach((imgRef, imgIndex) => {
-      const currentPosition = currentPositions[imgIndex]
-      const prevPosition = prevPositions[imgIndex]
-
-      const invert = {
-        left: prevPosition.left - currentPosition.left,
-        top: prevPosition.top - currentPosition.top,
-      }
-
-      const keyframes = [
-        {
-          transform: `translate(${invert.left}px, ${invert.top}px)`,
-        },
-        { transform: "translate(0)" },
-      ]
-
-      const options = {
-        duration: 300,
-        easing: "cubic-bezier(0,0,0.32,1)",
-      }
-
-      const animation = imgRef.animate(keyframes, options)
-    })
-  })
-},
-```
 
 ## 乱序
 
@@ -217,64 +93,7 @@ async add() {
 
 其实外部只需要传入一个 `update` 方法告诉我们如何去更新图片数组，就可以把这个逻辑完全抽象到一个函数里去。
 
-```js
-scheduleAnimation(update) {
-  // 获取旧图片的位置
-  const prevImgs = this.$refs.imgs.slice()
-  const prevSrcRectMap = createSrcRectMap(prevImgs)
-  // 更新数据
-  update()
-  // DOM更新后
-  this.$nextTick(() => {
-    const currentSrcRectMap = createSrcRectMap(prevImgs)
-    Object.keys(prevSrcRectMap).forEach((src) => {
-      const currentRect = currentSrcRectMap[src]
-      const prevRect = prevSrcRectMap[src]
 
-      const invert = {
-        left: prevRect.left - currentRect.left,
-        top: prevRect.top - currentRect.top,
-      }
-
-      const keyframes = [
-        {
-          transform: `translate(${invert.left}px, ${invert.top}px)`,
-        },
-        { transform: "" },
-      ]
-      const options = {
-        duration: 300,
-        easing: "cubic-bezier(0,0,0.32,1)",
-      }
-
-      const animation = currentRect.img.animate(keyframes, options)
-    })
-  })
-}
-```
-
-那么追加图片和乱序的函数就变得非常简单了：
-
-```js
-// 追加图片
-async add() {
-  const newData = this.getSister()
-  await preload(newData)
-  this.scheduleAnimation(() => {
-    this.imgs = newData.concat(this.imgs)
-  })
-},
-// 乱序图片
-shuffle() {
-  this.scheduleAnimation(() => {
-    this.imgs = shuffle(this.imgs)
-  })
-}
-```
-
-## 源码地址
-
-https://github.com/sl1673495/flip-animation
 
 ## 总结
 
@@ -333,13 +152,3 @@ const animation = currentRect.img.animate(keyframes, options)
 关于兼容性问题，W3C 已经提供了 [`Web Animation API Polyfill`](https://github.com/web-animations/web-animations-js)，可以放心大胆的使用。
 
 期待在不久的未来，我们可以抛弃旧的动画模式，迎接这种更新更好的 API。
-
-希望这篇文章能让对动画发愁的你有一些收获，谢谢！
-
-## ❤️ 感谢大家
-
-1.如果本文对你有帮助，就点个赞支持下吧，你的「赞」是我创作的动力。
-
-2.关注公众号「前端从进阶到入院」即可加我好友，我拉你进「前端进阶交流群」，大家一起共同交流和进步。
-
-![](https://user-gold-cdn.xitu.io/2020/4/5/17149cbcaa96ff26?w=910&h=436&f=jpeg&s=78195)
